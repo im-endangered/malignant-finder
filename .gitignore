@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files (TSV and Datasets)
+*.tsv
+datasets/
+signatures/
+
+# HPC/Slurm Logs and Output
+logs/
+*.out
+*.err
+
+# ML Results and Model Checkpoints
+results/
+
+# OS/System files
+.DS_Store
