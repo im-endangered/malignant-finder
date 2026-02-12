@@ -128,10 +128,12 @@ def main():
                     help="Z-score features per gene/feature (after loading). Helps if features are sparse/heavy-tailed.")
     ap.add_argument("--lambda_l2", type=float, default=0.0,
                     help="Optional L2 weight decay on embeddings (small value like 1e-4).")
+    ap.add_argument("--seed", type=int, default=42)
 
     args = ap.parse_args()
 
-    seed = 42
+    seed = args.seed
+
     np.random.seed(seed)
     tf.random.set_seed(seed)
 
