@@ -1,0 +1,43 @@
+#preprocess the data
+
+python build_graph_inputs_v4_cnaedge_rawcos.py \
+  --cna_csv datasets/gao_et_al_2021/CNA_matrix_Gao2021_Breast/CNAs_Breast.var_ge_0.02.csv \
+  --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
+  --genes_txt datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Genes.txt \
+  --mtx datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Exp_data_UMIcounts.mtx \
+  --sig_genes_txt signatures/master_signature_genes_unique.txt \
+  --k 20 \
+  --power 4.0 \
+  --out results/gao2021_breast/inputs/v4_RNAfeat_CNAedge_var0.02_k20_rawcos_p4.npz
+
+
+#train GAT
+python train_rna.py \
+  --npz results/gao2021_breast/inputs/v4_RNAfeat_CNAedge_var0.02_k20_rawcos_p4.npz \
+  --n_clusters 10 \
+  --hidden1 64 \
+  --hidden2 16 \
+  --epochs 500 \
+  --lr 1e-3 \
+  --clusterer gmm \
+  --lambda_contrast 0.25 \
+  --temperature 0.1 \
+  --n_neg 256 \
+  --zscore_features \
+  --out_prefix results/gao2021_breast/runs/RNAfeat_CNAedge_p4_k20/gao2021_RNAfeat_CNAedge_p4_k20
+
+#collapse to binary
+python collapse_to_binary_by_malignant_fraction.py \
+  --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
+  --names_txt ${PFX}.cells.txt \
+  --labels_tsv ${PFX}.labels.tsv \
+  --out_labels_tsv ${PFX}.FINAL.binary.labels.tsv \
+  --tumor_frac_thr 0.50 \
+  --force_two_classes
+
+#evaluate
+python eval_tumor_normal_binary.py \
+  --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
+  --names_txt ${PFX}.cells.txt \
+  --labels_tsv ${PFX}.FINAL.binary.labels.tsv \
+  --out_prefix ${PFX}.FINAL.eval
