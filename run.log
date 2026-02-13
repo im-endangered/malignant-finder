@@ -1,6 +1,9 @@
+
+PYBIN=/gpfs/home/pb25e/.conda/envs/scgclust_rna/bin/python
+
 #preprocess the data
 
-python build_graph_inputs_v4_cnaedge_rawcos.py \
+$PYBIN build_graph_inputs_v4_cnaedge_rawcos.py \
   --cna_csv datasets/gao_et_al_2021/CNA_matrix_Gao2021_Breast/CNAs_Breast.var_ge_0.02.csv \
   --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
   --genes_txt datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Genes.txt \
@@ -12,7 +15,7 @@ python build_graph_inputs_v4_cnaedge_rawcos.py \
 
 
 #train GAT
-python train_rna.py \
+$PYBIN train_rna.py \
   --npz results/gao2021_breast/inputs/v4_RNAfeat_CNAedge_var0.02_k20_rawcos_p4.npz \
   --n_clusters 10 \
   --hidden1 64 \
@@ -27,7 +30,7 @@ python train_rna.py \
   --out_prefix results/gao2021_breast/runs/RNAfeat_CNAedge_p4_k20/gao2021_RNAfeat_CNAedge_p4_k20
 
 #collapse to binary
-python collapse_to_binary_by_malignant_fraction.py \
+$PYBIN collapse_to_binary_by_malignant_fraction.py \
   --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
   --names_txt ${PFX}.cells.txt \
   --labels_tsv ${PFX}.labels.tsv \
@@ -36,7 +39,7 @@ python collapse_to_binary_by_malignant_fraction.py \
   --force_two_classes
 
 #evaluate
-python eval_tumor_normal_binary.py \
+$PYBIN eval_tumor_normal_binary.py \
   --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
   --names_txt ${PFX}.cells.txt \
   --labels_tsv ${PFX}.FINAL.binary.labels.tsv \
