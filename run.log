@@ -28,7 +28,8 @@ $PYBIN train_rna.py \
   --n_neg 256 \
   --zscore_features \
   --out_prefix results/gao2021_breast/runs/RNAfeat_CNAedge_p4_k20/gao2021_RNAfeat_CNAedge_p4_k20
-
+  
+PFX=results/gao2021_breast/runs/RNAfeat_CNAedge_p4_k20/gao2021_RNAfeat_CNAedge_p4_k20
 #collapse to binary
 $PYBIN collapse_to_binary_by_malignant_fraction.py \
   --cells_csv datasets/gao_et_al_2021/Data_Gao2021_Breast/Breast/Cells.csv \
