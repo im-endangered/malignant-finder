@@ -20,3 +20,5 @@ results/
 .DS_Store
 
 scmalignantFinder/
+
+.env
