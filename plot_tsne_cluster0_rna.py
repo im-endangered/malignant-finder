@@ -58,3 +58,9 @@ plt.ylabel("tSNE-2")
 plt.savefig(args.pfx + f".cluster{args.cluster_id}.tsne.png", dpi=150)
 print("Wrote : "+args.pfx + f".cluster{args.cluster_id}.tsne.png")
 plt.show()
+
+
+#plot the embeddings
+
+#check how far is farthest neighbor in knn . specificically in cluster 0 
+#check for random tumor cells in cluster 0 , check if its neighbor are tumor too
