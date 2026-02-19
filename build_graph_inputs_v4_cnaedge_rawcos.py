@@ -48,11 +48,10 @@ def cp10k_log1p(X: sp.spmatrix) -> np.ndarray:
     lib = np.asarray(X.sum(axis=1)).ravel().astype(np.float32)  # (cells,)
     scale = 1e4 / (lib + 1e-12)
 
-    # scale rows
-    # (diag(scale) @ X) is expensive; do row-wise multiply in CSR:
+    # Row-wise multiply in CSR:
     X_scaled = X.multiply(scale[:, None])
 
-    # log1p -> dense (OK at your sizes)
+    # log1p -> dense
     X_scaled = X_scaled.astype(np.float32)
     X_dense = X_scaled.toarray()
     np.log1p(X_dense, out=X_dense)
@@ -75,13 +74,11 @@ def build_knn_cna_edges(
     rng = np.random.RandomState(seed)
     N = CNA.shape[0]
 
-    # NearestNeighbors w/ cosine distance
-    # n_neighbors = k+1 so self appears (distance 0), we drop it
-    nn = NearestNeighbors(n_neighbors=k + 1, metric="cosine", algorithm="auto")
+    nn = NearestNeighbors(n_neighbors=min(k + 1, N), metric="cosine", algorithm="auto")
     nn.fit(CNA)
     dist, idx = nn.kneighbors(CNA, return_distance=True)  # (N,k+1)
 
-    # drop self neighbor (usually idx[:,0]==arange(N))
+    # drop self neighbor
     idx = idx[:, 1:]
     dist = dist[:, 1:]
 
@@ -91,8 +88,10 @@ def build_knn_cna_edges(
     if power is not None and float(power) != 1.0:
         sim = np.power(sim, float(power), dtype=np.float32)
 
+    k_eff = idx.shape[1]
+
     # directed edges i -> idx[i,j]
-    src = np.repeat(np.arange(N, dtype=np.int64), k)
+    src = np.repeat(np.arange(N, dtype=np.int64), k_eff)
     dst = idx.reshape(-1).astype(np.int64)
     w = sim.reshape(-1).astype(np.float32)
 
@@ -106,20 +105,13 @@ def build_knn_cna_edges(
         return edge_index, edge_weight
 
     # Symmetrize by coalescing i->j and j->i
-    # We'll create keys for pairs and aggregate
-    # For max coalesce: keep max weight among duplicates.
-    # (This is efficient enough for your edge counts.)
     pairs = np.vstack([src, dst]).T  # (E,2)
-
-    # add reversed edges too so graph is explicitly undirected-ish
     pairs_rev = np.vstack([dst, src]).T
     w_rev = w.copy()
 
     pairs2 = np.concatenate([pairs, pairs_rev], axis=0)
     w2 = np.concatenate([w, w_rev], axis=0)
 
-    # coalesce duplicates (stable + fast, no structured view)
-    # unique key for (src,dst): src * N + dst
     keys = pairs2[:, 0] * np.int64(N) + pairs2[:, 1]
 
     order = np.argsort(keys, kind="mergesort")
@@ -149,7 +141,6 @@ def build_knn_cna_edges(
     return edge_index, edge_weight
 
 
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cna_csv", required=True, help="CNA matrix CSV with cell_name as first column/index.")
@@ -160,12 +151,19 @@ def main():
 
     ap.add_argument("--k", type=int, default=20)
     ap.add_argument("--power", type=float, default=4.0)
+
     ap.add_argument("--symmetrize", action="store_true", help="Symmetrize edges (default True).")
     ap.add_argument("--no_symmetrize", dest="symmetrize", action="store_false")
     ap.set_defaults(symmetrize=True)
 
     ap.add_argument("--coalesce", default="max", choices=["max", "mean"])
     ap.add_argument("--seed", type=int, default=0)
+
+    ap.add_argument(
+        "--allow_missing_cna",
+        action="store_true",
+        help="If some Cells.csv cell_names are missing from CNA CSV, restrict to intersection instead of error.",
+    )
 
     ap.add_argument("--out", required=True, help="Output NPZ path.")
     args = ap.parse_args()
@@ -174,12 +172,38 @@ def main():
     cells = pd.read_csv(args.cells_csv)
     if "cell_name" not in cells.columns:
         raise ValueError("Cells.csv must contain column 'cell_name'")
-    cell_names = cells["cell_name"].astype(str).tolist()
+    cell_names_all = cells["cell_name"].astype(str).tolist()
+    N_all = len(cell_names_all)
+
+    # --- CNA (load early so we can intersect before building RNA features) ---
+    cna = pd.read_csv(args.cna_csv, index_col=0)
+    cna.index = cna.index.astype(str)
+
+    cna_index = set(cna.index.tolist())
+    missing = [cn for cn in cell_names_all if cn not in cna_index]
+
+    if missing:
+        if not args.allow_missing_cna:
+            raise ValueError(
+                f"CNA CSV missing {len(missing)} cell_names from Cells.csv (example: {missing[:5]}). "
+                f"Re-run with --allow_missing_cna to use intersection."
+            )
+        print(f"[WARN] CNA missing {len(missing)} cells from Cells.csv. Using intersection (dropping missing).")
+        print(f"[WARN] Missing examples: {missing[:10]}")
+        cell_names = [cn for cn in cell_names_all if cn in cna_index]
+    else:
+        cell_names = cell_names_all
+
     N = len(cell_names)
+    if N == 0:
+        raise RuntimeError("After intersecting Cells.csv with CNA CSV, zero cells remain.")
+
+    if N != N_all:
+        print(f"[INFO] Cells.csv total={N_all}; using intersected N={N}")
 
     # --- RNA: load MTX + genes ---
     genes_raw = read_lines(args.genes_txt)
-    genes = [strip_quotes(g) for g in genes_raw]  # remove quotes so downstream is consistent
+    genes = [strip_quotes(g) for g in genes_raw]
     G = len(genes)
 
     X_mtx = mmread(args.mtx)
@@ -188,18 +212,26 @@ def main():
     X_mtx = X_mtx.tocsr()
 
     # Determine orientation: we want (cells x genes)
-    # Your earlier logs show (4143, 33694) after processing, so cells=4143, genes=33694.
-    if X_mtx.shape == (G, N):
-        X_counts = X_mtx.T.tocsr()
-    elif X_mtx.shape == (N, G):
-        X_counts = X_mtx.tocsr()
+    if X_mtx.shape == (G, N_all):
+        X_counts_all = X_mtx.T.tocsr()
+    elif X_mtx.shape == (N_all, G):
+        X_counts_all = X_mtx.tocsr()
     else:
         raise ValueError(
-            f"MTX shape {X_mtx.shape} does not match Genes.txt ({G}) and Cells.csv ({N}). "
-            f"Expected (G,N) or (N,G)."
+            f"MTX shape {X_mtx.shape} does not match Genes.txt ({G}) and Cells.csv ({N_all}). "
+            f"Expected (G,N_all) or (N_all,G)."
         )
 
-    print(f"[RNA] raw counts shape: {X_counts.shape}")
+    print(f"[RNA] raw counts (all Cells.csv order) shape: {X_counts_all.shape}")
+
+    # Subset RNA counts to the intersected cell list (if needed)
+    if N != N_all:
+        pos = {cn: i for i, cn in enumerate(cell_names_all)}
+        keep_rows = [pos[cn] for cn in cell_names]
+        X_counts = X_counts_all[keep_rows, :].tocsr()
+        print(f"[RNA] subset to intersection shape: {X_counts.shape}")
+    else:
+        X_counts = X_counts_all
 
     X_norm = cp10k_log1p(X_counts)
     print("[RNA] CP10000 normalized + log1p done.")
@@ -223,16 +255,7 @@ def main():
     print(f"[RNA] rna_feat (N x G): {X_feat.shape} mode=signatures_cp10k_log1p")
     print(f"[RNA] feat min/median/max: {float(X_feat.min())} {float(np.median(X_feat))} {float(X_feat.max())}")
 
-    # --- CNA ---
-    cna = pd.read_csv(args.cna_csv, index_col=0)
-    # ensure index is str
-    cna.index = cna.index.astype(str)
-
-    # reorder to Cells.csv order
-    missing = set(cell_names) - set(cna.index)
-    if missing:
-        raise ValueError(f"CNA CSV missing {len(missing)} cell_names from Cells.csv (example: {list(missing)[:5]})")
-
+    # --- CNA reorder to matched cell list ---
     cna = cna.loc[cell_names]
     CNA = cna.to_numpy(dtype=np.float32, copy=True)
     print(f"[CNA] shape: {CNA.shape}")
@@ -263,7 +286,10 @@ def main():
             "transform": "cp10k_log1p",
             "n_genes": int(X_feat.shape[1]),
         },
-        "canonical_order": "Cells.csv order (RNA), CNA reordered to match",
+        "canonical_order": "Cells.csv order intersected with CNA index (RNA and CNA aligned)",
+        "cells_csv_total": int(N_all),
+        "cells_used": int(N),
+        "dropped_missing_cna": int(N_all - N),
     }
 
     np.savez_compressed(
