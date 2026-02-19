@@ -49,7 +49,7 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
 
     # cluster-0 overlay controls
-    ap.add_argument("--cluster0_id", type=int, default=0,
+    ap.add_argument("--cluster_id", type=int, default=0,
                     help="Which cluster id to treat as the mixed cluster to overlay (default: 0)")
     ap.add_argument("--cells_csv", required=True,
                     help="Cells.csv that contains cell_name and cell_type columns")
@@ -122,13 +122,13 @@ def main():
 
     # --- output name ---
     if args.out is None:
-        args.out = f"{args.pfx}.tsne_{args.mode}.all_with_cluster0_truth.png"
+        args.out = f"{args.pfx}.tsne_{args.mode}.all_with_{args.cluster_id}_truth.png"
 
     # --- split indices ---
-    idx0 = np.where(labels == args.cluster0_id)[0]
-    idx_other = np.where(labels != args.cluster0_id)[0]
+    idx0 = np.where(labels == args.cluster_id)[0]
+    idx_other = np.where(labels != args.cluster_id)[0]
     if idx0.size == 0:
-        raise ValueError(f"No cells found for cluster0_id={args.cluster0_id}")
+        raise ValueError(f"No cells found for cluster_id={args.cluster_id}")
 
     # overlay cluster0 by truth
     idx0_tumor = idx0[is_tumor[idx0]]
@@ -155,7 +155,7 @@ def main():
             alpha=0.85,
             edgecolors="k",
             linewidths=0.3,
-            label="Cluster 0: Normal (truth)"
+            label=f"Cluster {args.cluster_id}: Normal (truth)"
         )
     if idx0_tumor.size > 0:
         plt.scatter(
@@ -165,22 +165,22 @@ def main():
             alpha=0.85,
             edgecolors="k",
             linewidths=0.3,
-            label="Cluster 0: Tumor (truth)"
+            label=f"Cluster {args.cluster_id} : Tumor (truth)"
         )
 
     title = f"t-SNE of {args.mode} — all cells (colored by cluster id)\n"
-    title += f"Overlay: cluster {args.cluster0_id} colored by truth tumor/normal"
+    title += f"Overlay: cluster {args.cluster_id} colored by truth tumor/normal"
     plt.title(title)
     plt.xlabel("tSNE-1")
     plt.ylabel("tSNE-2")
 
     cbar = plt.colorbar(sc)
-    cbar.set_label("cluster id (excluding cluster0 overlay colors)")
+    cbar.set_label(f"cluster id (excluding {args.cluster_id} overlay colors)")
 
     plt.legend(loc="best", frameon=True)
     plt.savefig(args.out, dpi=200, bbox_inches="tight")
     print("[OK] wrote:", args.out)
-    print(f"[INFO] cluster0_id={args.cluster0_id} n={idx0.size} "
+    print(f"[INFO] cluster_id={args.cluster_id} n={idx0.size} "
           f"tumor={idx0_tumor.size} normal={idx0_normal.size}")
 
 
